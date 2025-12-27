@@ -1121,6 +1121,7 @@ def main():
         <!DOCTYPE html>
         <html>
         <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
             <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
             <style>
                 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -1128,6 +1129,10 @@ def main():
                 body {{
                     font-family: 'Inter', sans-serif;
                     overflow: hidden;
+                    margin: 0;
+                    padding: 0;
+                    -webkit-font-smoothing: antialiased;
+                    -moz-osx-font-smoothing: grayscale;
                 }}
                 
                 .home-container {{
@@ -1135,6 +1140,7 @@ def main():
                     width: 100vw;
                     height: 100vh;
                     overflow: hidden;
+                    min-height: 500px;
                 }}
                 
                 /* Background - gradient base */
@@ -1302,6 +1308,111 @@ def main():
                     from {{ opacity: 0; transform: translateY(40px); }}
                     to {{ opacity: 1; transform: translateY(0); }}
                 }}
+                
+                /* Mobile Responsive Styles */
+                @media screen and (max-width: 768px) {{
+                    .title {{
+                        font-size: 2.5rem !important;
+                        padding: 0 1rem;
+                        animation: typing 2s steps(13, end) forwards, blink-caret 0.75s step-end infinite;
+                    }}
+                    
+                    .subtitle {{
+                        font-size: 1rem !important;
+                        padding: 0 1.5rem;
+                        line-height: 1.6;
+                        margin-bottom: 2rem;
+                    }}
+                    
+                    .content {{
+                        padding: 1rem;
+                        height: 100vh;
+                        justify-content: center;
+                    }}
+                    
+                    .home-container {{
+                        height: 100vh;
+                        min-height: 600px;
+                    }}
+                    
+                    .orb-1 {{
+                        width: 250px;
+                        height: 250px;
+                        top: -50px;
+                        left: -50px;
+                    }}
+                    
+                    .orb-2 {{
+                        width: 200px;
+                        height: 200px;
+                        bottom: -30px;
+                        right: -30px;
+                    }}
+                    
+                    .bg-video {{
+                        opacity: 0.7;
+                    }}
+                    
+                    .bg-image {{
+                        opacity: 0.5;
+                    }}
+                }}
+                
+                @media screen and (max-width: 480px) {{
+                    .title {{
+                        font-size: 2rem !important;
+                        padding: 0 0.5rem;
+                        line-height: 1.2;
+                    }}
+                    
+                    .subtitle {{
+                        font-size: 0.9rem !important;
+                        padding: 0 1rem;
+                        line-height: 1.5;
+                        margin-bottom: 1.5rem;
+                    }}
+                    
+                    .content {{
+                        padding: 0.5rem;
+                    }}
+                    
+                    .orb-1 {{
+                        width: 200px;
+                        height: 200px;
+                    }}
+                    
+                    .orb-2 {{
+                        width: 150px;
+                        height: 150px;
+                    }}
+                }}
+                
+                /* Tablet Styles */
+                @media screen and (min-width: 769px) and (max-width: 1024px) {{
+                    .title {{
+                        font-size: 3.5rem;
+                    }}
+                    
+                    .subtitle {{
+                        font-size: 1.2rem;
+                        max-width: 600px;
+                    }}
+                }}
+                
+                /* Touch-friendly adjustments */
+                @media (hover: none) and (pointer: coarse) {{
+                    .content {{
+                        padding: 2rem 1rem;
+                    }}
+                    
+                    .title {{
+                        font-size: clamp(2rem, 8vw, 4.5rem);
+                    }}
+                    
+                    .subtitle {{
+                        font-size: clamp(0.9rem, 3vw, 1.4rem);
+                    }}
+                }}
             </style>
         </head>
         <body>
@@ -1324,8 +1435,9 @@ def main():
         </html>
         """
         
-        # Render the home page using components.html (full viewport height)
-        components.html(home_html, height=800, scrolling=False)
+        # Render the home page using components.html (responsive height)
+        # Use viewport height for better mobile support
+        components.html(home_html, height=600, scrolling=False)
         
         # Styled "CLICK ME TO ENTER" button - white background, purple text, cool font
         st.markdown("""
@@ -1354,11 +1466,15 @@ def main():
                 transition: all 0.3s ease !important;
                 cursor: pointer !important;
                 box-shadow: 0 10px 35px rgba(0, 0, 0, 0.15) !important;
+                min-height: 48px !important; /* Touch-friendly minimum size */
             }
             .click-enter-btn button:hover {
                 background: #f5f3ff !important;
                 transform: translateY(-3px) scale(1.02) !important;
                 box-shadow: 0 15px 45px rgba(124, 58, 237, 0.3) !important;
+            }
+            .click-enter-btn button:active {
+                transform: translateY(-1px) scale(0.98) !important;
             }
             .arrows-above {
                 display: flex;
@@ -1375,6 +1491,55 @@ def main():
                 transform: rotate(45deg);
                 margin: -4px;
                 opacity: 0.8;
+            }
+            
+            /* Mobile Responsive Button Styles */
+            @media screen and (max-width: 768px) {
+                .click-enter-btn {
+                    margin-top: -30px;
+                }
+                .click-enter-btn button {
+                    padding: 1rem 2rem !important;
+                    font-size: 0.9rem !important;
+                    letter-spacing: 2px !important;
+                    min-height: 50px !important;
+                    width: 90% !important;
+                    max-width: 300px;
+                }
+                .arrows-above {
+                    margin-bottom: 15px;
+                }
+                .arrows-above span {
+                    width: 10px;
+                    height: 10px;
+                    border-bottom-width: 2px;
+                    border-right-width: 2px;
+                }
+            }
+            
+            @media screen and (max-width: 480px) {
+                .click-enter-btn {
+                    margin-top: -20px;
+                }
+                .click-enter-btn button {
+                    padding: 0.9rem 1.5rem !important;
+                    font-size: 0.8rem !important;
+                    letter-spacing: 1.5px !important;
+                    min-height: 48px !important;
+                    width: 85% !important;
+                }
+                .arrows-above {
+                    margin-bottom: 10px;
+                }
+            }
+            
+            /* Touch device optimizations */
+            @media (hover: none) and (pointer: coarse) {
+                .click-enter-btn button {
+                    padding: 1.1rem 2.5rem !important;
+                    min-height: 52px !important;
+                    font-size: clamp(0.75rem, 3vw, 1.15rem) !important;
+                }
             }
         </style>
         """, unsafe_allow_html=True)

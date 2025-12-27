@@ -2,8 +2,6 @@
 
 A comprehensive Streamlit application for stock analysis and portfolio optimization powered by Generative AI.
 
-Harness the power of Artificial Intelligence for smarter investment decisions. Analyze stocks, optimize portfolios, and get AI-powered recommendations.
-
 ## Features
 
 - **🤖 GenAI-Powered Ticker Extraction**: Automatically extract stock tickers from asset names using OpenAI

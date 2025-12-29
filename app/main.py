@@ -18,6 +18,7 @@ import sys
 import os
 from pathlib import Path
 import html
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add parent directory to path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1001,9 +1002,11 @@ def download_ticker_data(ticker, start_date, end_date):
 
 def _preload_ticker_data(tickers, start_date, end_date):
     """
-    Pre-load ticker data in background to populate cache.
+    Pre-load ticker data in background to populate cache using parallel processing.
     This ensures data is ready when user navigates to other tabs.
     Also pre-calculates KPIs automatically.
+    
+    Uses ThreadPoolExecutor for parallel downloads to significantly improve performance.
     
     Parameters:
     tickers (list): List of ticker symbols to preload.
@@ -1019,39 +1022,59 @@ def _preload_ticker_data(tickers, start_date, end_date):
         years = st.session_state.get('years', DEFAULT_YEARS)
         start_date, end_date = calculate_date_range(years)
     
-    # Pre-load data for each ticker (this will populate the cache)
-    # Use try-except to avoid blocking if one ticker fails
-    for ticker in tickers:
+    # Helper function to load a single ticker
+    def _load_single_ticker(ticker):
+        """Load data and info for a single ticker"""
         try:
             # This call will populate the cache via get_ticker_history
             # Even if we don't use the result, it's now cached for future use
             get_ticker_history(ticker, start_date, end_date)
             # Also pre-load ticker info (company name, etc.)
             get_ticker_info_cached(ticker, 'longName')
-        except Exception:
-            # Silently continue - individual ticker failures shouldn't block others
-            continue
+            return ticker, True
+        except Exception as e:
+            # Return ticker with failure status
+            return ticker, False
     
-    # Pre-calculate KPIs automatically (this uses cached data, so it's fast)
-    try:
-        tickers_str = ",".join(sorted(tickers))
-        # Only calculate if tickers changed or no KPIs exist
-        if (
-            'kpi_tickers' not in st.session_state or 
-            st.session_state.kpi_tickers != tickers_str or 
-            not st.session_state.kpi_data
-        ):
-            # Calculate KPIs (will use cached data from above)
-            st.session_state.kpi_data = calculate_kpis(tickers, start_date, end_date)
-            st.session_state.kpi_tickers = tickers_str
-    except Exception:
-        # Silently fail - KPIs will be calculated when user visits KPI tab
-        pass
+    # Pre-load data for all tickers in parallel using ThreadPoolExecutor
+    # This is much faster than sequential loading
+    max_workers = min(5, len(tickers))  # Limit to 5 concurrent downloads to avoid overwhelming the API
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_ticker = {
+            executor.submit(_load_single_ticker, ticker): ticker 
+            for ticker in tickers
+        }
+        
+        # Process results as they complete
+        successful_tickers = []
+        for future in as_completed(future_to_ticker):
+            ticker, success = future.result()
+            if success:
+                successful_tickers.append(ticker)
+            # Silently continue - individual ticker failures shouldn't block others
+    
+    # KPIs will be calculated when user visits the KPIs tab
+    # This makes preload much faster - we only load the raw data here
+    # KPIs calculation is deferred to when the user actually needs them
 
-# Auto-initialize LLM if API key is available from environment
-if OPENAI_API_KEY and st.session_state.llm is None:
+# Auto-initialize LLM if API key is available
+# Check Streamlit Secrets first (for Streamlit Cloud), then fallback to config
+_api_key = None
+try:
+    # Try Streamlit Secrets (for Streamlit Cloud deployment)
+    if hasattr(st, 'secrets') and hasattr(st.secrets, 'get'):
+        _api_key = st.secrets.get("OPENAI_API_KEY", None)
+except Exception:
+    pass
+
+# Fallback to config OPENAI_API_KEY (from environment variable)
+if not _api_key:
+    _api_key = OPENAI_API_KEY
+
+if _api_key and st.session_state.llm is None:
     try:
-        st.session_state.llm = initialize_llm(OPENAI_API_KEY)
+        st.session_state.llm = initialize_llm(_api_key)
     except Exception:
         # Silently fail - will show error if user tries to use LLM features
         pass
@@ -1886,12 +1909,22 @@ def main():
                     st.warning("⚠️ Please enter at least one valid ticker.")
             elif selected_tickers:
                 # Extract tickers using GenAI from selected company names
-                # Get API key
-                from config.settings import OPENAI_API_KEY as CONFIG_API_KEY
-                api_key = CONFIG_API_KEY if CONFIG_API_KEY else ""
+                # Get API key - try Streamlit Secrets first, then config
+                api_key = None
+                try:
+                    # Try Streamlit Secrets (for Streamlit Cloud deployment)
+                    if hasattr(st, 'secrets') and hasattr(st.secrets, 'get'):
+                        api_key = st.secrets.get("OPENAI_API_KEY", None)
+                except Exception:
+                    pass
                 
+                # Fallback to config
                 if not api_key:
-                    # Fallback: Try to load directly from api_key.txt
+                    from config.settings import OPENAI_API_KEY as CONFIG_API_KEY
+                    api_key = CONFIG_API_KEY if CONFIG_API_KEY else ""
+                
+                # Final fallback: Try to load directly from api_key.txt
+                if not api_key:
                     try:
                         api_key_file = Path(__file__).parent.parent / "api_key.txt"
                         if api_key_file.exists():
@@ -1902,7 +1935,7 @@ def main():
                 
                 if not api_key:
                     loading_placeholder.empty()
-                    st.error("⚠️ OpenAI API key not configured. Please set OPENAI_API_KEY environment variable or create api_key.txt file.")
+                    st.error("⚠️ OpenAI API key not configured. Please set OPENAI_API_KEY in Streamlit Secrets, environment variable, or create api_key.txt file.")
                 else:
                     # Initialize LLM if needed
                     if not st.session_state.llm:
@@ -1947,65 +1980,16 @@ def main():
                         """, unsafe_allow_html=True)
                     
                     try:
-                        # Build assets list from selected tickers (using company names)
-                        selected_companies = [f"{available_tickers[ticker]} ({ticker})" for ticker in selected_tickers]
-                        
-                        if not selected_companies:
-                            skeleton_placeholder.empty()
-                            st.warning("⚠️ Please select at least one ticker.")
-                        else:
-                            # Prepare prompt for LLM to extract tickers
-                            query = f"""
-                            Fetch me the tickers from the following assets: {selected_companies}
-                            Your output must be sorted alphabetically by the ticker and it should be like this:
-                            tickers = ['AAPL', 'AMZN', 'GOOGL', 'META', 'MSFT', 'NVDA', 'SPY', 'TSLA']
-                            Only output the tickers list, nothing else.
-                            """
-                            
-                            # #region agent log
-                            llm_call_start = time_module.time()
-                            with open(log_path, "a") as f:
-                                f.write(json_debug.dumps({"location": "main.py:LLM_CALL_START", "message": "Calling LLM to extract tickers", "data": {"hypothesisId": "C", "num_companies": len(selected_companies)}, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-                            # #endregion
-                            
-                            response = get_llm_response(st.session_state.llm, query)
-                            
-                            # #region agent log
-                            with open(log_path, "a") as f:
-                                f.write(json_debug.dumps({"location": "main.py:LLM_CALL_SUCCESS", "message": "LLM response received", "data": {"hypothesisId": "C", "elapsed": time_module.time() - llm_call_start, "response_length": len(response) if response else 0}, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-                            # #endregion
-                            
+                        # If user already selected tickers, use them directly - no need for LLM call!
+                        # This is MUCH faster (saves 2-5 seconds)
+                        if selected_tickers:
                             skeleton_placeholder.empty()  # Clear skeleton
+                            extracted_tickers = selected_tickers
                             
-                            # Try to extract tickers from response
-                            import re
-                            import ast
-                            extracted_tickers = None
-                            
-                            # Method 1: Look for tickers = [...] format
-                            ticker_match = re.search(r"tickers\s*=\s*\[(.*?)\]", response, re.DOTALL)
-                            if ticker_match:
-                                try:
-                                    tickers_str = f"[{ticker_match.group(1)}]"
-                                    parsed = ast.literal_eval(tickers_str)
-                                    if isinstance(parsed, list):
-                                        extracted_tickers = [str(t).strip().strip("'\"") for t in parsed]
-                                except Exception:
-                                    extracted_tickers = None
-                            
-                            # Method 2: Try to parse any Python-like list in the response
-                            if not extracted_tickers:
-                                list_match = re.search(r"\[(.*?)\]", response, re.DOTALL)
-                                if list_match:
-                                    try:
-                                        tickers_str = list_match.group(1)
-                                        extracted_tickers = [t.strip().strip("'\"") for t in tickers_str.split(",") if t.strip()]
-                                    except Exception:
-                                        extracted_tickers = None
-                            
-                            # Method 3: Fallback - use selected tickers directly
-                            if not extracted_tickers:
-                                extracted_tickers = selected_tickers
+                            # #region agent log
+                            with open(log_path, "a") as f:
+                                f.write(json_debug.dumps({"location": "main.py:SKIP_LLM_USE_SELECTED", "message": "Using selected tickers directly (skipping LLM call)", "data": {"hypothesisId": "C", "num_tickers": len(extracted_tickers), "tickers": extracted_tickers}, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                            # #endregion
                             
                             if extracted_tickers:
                                 st.session_state.tickers = extracted_tickers
@@ -2781,8 +2765,22 @@ def main():
         if not st.session_state.tickers or len(st.session_state.tickers) == 0:
             st.stop()
         
+        # Get API key - try Streamlit Secrets first, then config
+        api_key = None
+        try:
+            # Try Streamlit Secrets (for Streamlit Cloud deployment)
+            if hasattr(st, 'secrets') and hasattr(st.secrets, 'get'):
+                api_key = st.secrets.get("OPENAI_API_KEY", None)
+        except Exception:
+            pass
+        
+        # Fallback to config
+        if not api_key:
+            from config.settings import OPENAI_API_KEY as CONFIG_API_KEY
+            api_key = CONFIG_API_KEY if CONFIG_API_KEY else ""
+        
         if not api_key or not st.session_state.llm:
-            st.warning("⚠️ OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.")
+            st.warning("⚠️ OpenAI API key not configured. Please set OPENAI_API_KEY in Streamlit Secrets or environment variable.")
         elif not st.session_state.kpi_data:
             st.info("📊 Please calculate KPIs first to get AI recommendations.")
         else:

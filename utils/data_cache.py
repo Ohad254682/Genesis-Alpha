@@ -5,6 +5,7 @@ This module provides cached functions to avoid redundant API calls.
 import yfinance as yf
 import pandas as pd
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.exceptions import ConnectionError as RequestsConnectionError, Timeout, RequestException
 
 # Try to import streamlit for caching (optional - if not available, caching won't work)
@@ -78,6 +79,7 @@ def get_ticker_history(ticker, start_date, end_date, max_retries=3, retry_delay=
         except (RequestsConnectionError, Timeout, RequestException) as e:
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1))
+                continue
             else:
                 raise ConnectionError(
                     f"Failed to download data for {ticker} after {max_retries} attempts. "
@@ -86,14 +88,9 @@ def get_ticker_history(ticker, start_date, end_date, max_retries=3, retry_delay=
         except Exception as e:
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
+                continue
             else:
                 raise Exception(f"Error downloading data for {ticker}: {str(e)}") from e
-    
-    # If we get here, all retries failed
-    raise ConnectionError(
-        f"Failed to download data for {ticker} after {max_retries} attempts. "
-        "Please check your internet connection or VPN."
-    )
 
 
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache for 1 hour
@@ -141,10 +138,9 @@ def get_multiple_tickers_history(tickers, start_date, end_date, max_retries=3, r
     if not start_date or not end_date:
         raise ValueError("Start date and end date must be provided.")
     
-    # Download each ticker individually using cached function
-    all_data = {}
-    
-    for ticker in tickers:
+    # Helper function to download a single ticker
+    def _download_single_ticker(ticker):
+        """Download and process a single ticker"""
         try:
             # Use the cached function to get full history
             hist = get_ticker_history(ticker, start_date, end_date, max_retries, retry_delay)
@@ -156,18 +152,44 @@ def get_multiple_tickers_history(tickers, start_date, end_date, max_retries=3, r
                 ticker_data = hist['Adj Close'].copy()
             else:
                 raise ValueError(f"No 'Close' or 'Adj Close' column found for {ticker}")
-            
+
             if ticker_data is not None and len(ticker_data) > 0:
-                all_data[ticker] = ticker_data
+                return ticker, ticker_data
+            else:
+                return ticker, None
         except Exception as e:
             # Log error but continue with other tickers
             print(f"Warning: Failed to download data for {ticker}: {str(e)}")
-            continue
+            return ticker, None
+    
+    # Download all tickers in parallel using ThreadPoolExecutor
+    # This is much faster than sequential downloads
+    all_data = {}
+    max_workers = min(5, len(tickers))  # Limit to 5 concurrent downloads to avoid overwhelming the API
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all download tasks
+        future_to_ticker = {
+            executor.submit(_download_single_ticker, ticker): ticker 
+            for ticker in tickers
+        }
+        
+        # Process results as they complete
+        for future in as_completed(future_to_ticker):
+            ticker, ticker_data = future.result()
+            if ticker_data is not None:
+                all_data[ticker] = ticker_data
     
     if not all_data:
         raise ValueError("No data downloaded for any ticker")
     
     # Combine all tickers into a single DataFrame
+#     אחרי to_numeric:
+#             AAPL     TSLA
+# 2025-01-01  185.10  245.00
+# 2025-01-02  187.30  250.20
+# 2025-01-03   NaN    248.70
+# 2025-01-04  188.00   NaN
     try:
         result_df = pd.DataFrame(all_data)
         # Ensure all columns are numeric

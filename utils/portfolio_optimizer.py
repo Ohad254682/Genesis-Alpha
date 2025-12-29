@@ -95,28 +95,6 @@ def max_sharpe_ratio(mean_returns, cov_matrix, risk_free_rate):
     return result
 
 
-@st.cache_data(ttl=3600, show_spinner=False)  # Cache for 1 hour
-def _download_portfolio_data(tickers, start_date, end_date, max_retries=3, retry_delay=2):
-    """
-    Download portfolio data with retry logic and caching.
-    Uses centralized data cache to avoid redundant downloads.
-    Cached to reduce API calls and improve performance.
-    
-    Parameters:
-    tickers (list): List of stock ticker symbols.
-    start_date (str): Start date for historical data.
-    end_date (str): End date for historical data.
-    max_retries (int): Maximum number of retry attempts.
-    retry_delay (float): Delay between retries in seconds.
-    
-    Returns:
-    pd.DataFrame: Adjusted close prices with tickers as columns.
-    
-    Raises:
-    ConnectionError: If connection fails after all retries.
-    """
-    # Use centralized cached function - it already handles retries and caching
-    return get_multiple_tickers_history(tickers, start_date, end_date, max_retries, retry_delay)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache for 1 hour
@@ -160,7 +138,8 @@ def optimize_portfolio_mpt(tickers, start_date, end_date, risk_free_rate=0.04):
     # #endregion
     
     # Fetch the adjusted close prices with retry logic
-    data = _download_portfolio_data(tickers, start_date, end_date)
+    # Use get_multiple_tickers_history directly - data is already cached from preload
+    data = get_multiple_tickers_history(tickers, start_date, end_date)
     
     # #region agent log - After data download
     try:
@@ -857,7 +836,8 @@ def optimize_portfolio_risk_parity(tickers, start_date, end_date, risk_free_rate
     log_path = r"c:\Users\ohada\OneDrive\Desktop\Gen AI for Stock Analysis (2)\Gen AI for Stock Analysis\.cursor\debug.log"
 
     # Fetch and clean data using the same pipeline as MPT
-    data = _download_portfolio_data(tickers, start_date, end_date)
+    # Use get_multiple_tickers_history directly - data is already cached from preload
+    data = get_multiple_tickers_history(tickers, start_date, end_date)
     
     if data is None or data.empty:
         raise ValueError(
@@ -1090,7 +1070,8 @@ def optimize_portfolio_black_litterman(tickers, start_date, end_date, risk_free_
         )
     
     # Fetch historical stock data with retry logic
-    df = _download_portfolio_data(tickers, start_date, end_date)
+    # Use get_multiple_tickers_history directly - data is already cached from preload
+    df = get_multiple_tickers_history(tickers, start_date, end_date)
     
     # Calculate the sample mean returns and the covariance matrix
     mu = expected_returns.mean_historical_return(df)

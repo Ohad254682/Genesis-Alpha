@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 import time
 from requests.exceptions import ConnectionError as RequestsConnectionError, Timeout, RequestException
-from utils.data_cache import get_ticker_history, get_ticker_info as get_ticker_info_cached, get_multiple_tickers_history
+from utils.data_cache import get_ticker_history, get_ticker_info as get_ticker_info_cached, get_multiple_tickers_history as get_multiple_tickers_history_cached
 
 # Try to import streamlit for caching (optional - if not available, caching won't work)
 try:
@@ -26,7 +26,7 @@ except ImportError:
 def calculate_kpis(tickers, start_date, end_date):
     """
     Calculate KPIs for a list of stocks over a given time period.
-    Uses get_multiple_tickers_history() to download all tickers at once for better performance.
+    Uses get_multiple_tickers_history_cached() to download all tickers at once for better performance.
     Cached to improve performance and reduce API calls.
 
     Parameters:
@@ -39,10 +39,10 @@ def calculate_kpis(tickers, start_date, end_date):
     """
     kpi_data = {}
     
-    # Download all tickers at once using get_multiple_tickers_history()
+    # Download all tickers at once using get_multiple_tickers_history_cached()
     # This is more efficient than downloading each ticker separately
     try:
-        all_data = get_multiple_tickers_history(tickers, start_date, end_date)
+        all_data = get_multiple_tickers_history_cached(tickers, start_date, end_date)
     except (RequestsConnectionError, Timeout, RequestException) as e:
         error_msg = (
             f"Connection error downloading data: {str(e)}\n"
@@ -93,6 +93,12 @@ def calculate_kpis(tickers, start_date, end_date):
             }
 
             # Calculate P/E Ratio - use cached ticker info function
+            # EPS (Earnings Per Share) represents the company's profit per share.
+            # Formula: EPS = Net Income / Number of Outstanding Shares
+            # Example:
+            # If a company earned $100M and has 50M shares outstanding:
+            # EPS = 100 / 50 = 2
+            # This value is commonly used to calculate the P/E ratio (Price / EPS).
             try:
                 eps = get_ticker_info_cached(ticker, 'trailingEps')
                 if eps and eps != 0:

@@ -669,6 +669,34 @@ st.markdown("""
         border: 1px solid rgba(17, 153, 142, 0.3);
     }
     
+    /* Risk Assessment Button Styling - Use CSS :has() selector to target buttons after risk badges */
+    /* Low Risk buttons - teal color */
+    div:has(.risk-badge.risk-low) ~ div button[data-testid="baseButton-secondary"]:nth-of-type(n+1):nth-of-type(-n+10) {
+        background-color: #11998e !important;
+        color: #ffffff !important;
+        font-size: 1.2rem !important;
+        font-weight: 500 !important;
+        border: none !important;
+    }
+    
+    /* Moderate Risk buttons - yellow color */
+    div:has(.risk-badge.risk-moderate) ~ div button[data-testid="baseButton-secondary"]:nth-of-type(n+1):nth-of-type(-n+15) {
+        background-color: #ffc107 !important;
+        color: #856404 !important;
+        font-size: 1.2rem !important;
+        font-weight: 500 !important;
+        border: none !important;
+    }
+    
+    /* High Risk buttons - pink color */
+    div:has(.risk-badge.risk-high) ~ div button[data-testid="baseButton-secondary"]:nth-of-type(n+1):nth-of-type(-n+10) {
+        background-color: #ee0979 !important;
+        color: #ffffff !important;
+        font-size: 1.2rem !important;
+        font-weight: 500 !important;
+        border: none !important;
+    }
+    
     .portfolio-suggestion {
         background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
         border-radius: 12px;
@@ -1004,9 +1032,9 @@ def _preload_ticker_data(tickers, start_date, end_date):
     """
     Pre-load ticker data in background to populate cache using parallel processing.
     This ensures data is ready when user navigates to other tabs.
-    Also pre-calculates KPIs automatically.
     
-    Uses ThreadPoolExecutor for parallel downloads to significantly improve performance.
+    Uses get_multiple_tickers_history_cached() for efficient batch downloading,
+    which is much faster than downloading each ticker separately.
     
     Parameters:
     tickers (list): List of ticker symbols to preload.
@@ -1022,37 +1050,29 @@ def _preload_ticker_data(tickers, start_date, end_date):
         years = st.session_state.get('years', DEFAULT_YEARS)
         start_date, end_date = calculate_date_range(years)
     
-    # Helper function to load a single ticker
-    def _load_single_ticker(ticker):
-        """Load data and info for a single ticker"""
-        try:
-            # This call will populate the cache via get_ticker_history
-            # Even if we don't use the result, it's now cached for future use
-            get_ticker_history(ticker, start_date, end_date)
-            # Also pre-load ticker info (company name, etc.)
-            get_ticker_info_cached(ticker, 'longName')
-            return ticker, True
-        except Exception as e:
-            # Return ticker with failure status
-            return ticker, False
-    
-    # Pre-load data for all tickers in parallel using ThreadPoolExecutor
-    # This is much faster than sequential loading
-    max_workers = min(5, len(tickers))  # Limit to 5 concurrent downloads to avoid overwhelming the API
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
-        future_to_ticker = {
-            executor.submit(_load_single_ticker, ticker): ticker 
-            for ticker in tickers
-        }
+    try:
+        # Use get_multiple_tickers_history_cached() - it already does parallel downloads!
+        # This is MUCH faster than downloading each ticker separately (batch download)
+        from utils.data_cache import get_multiple_tickers_history_cached
+        get_multiple_tickers_history_cached(tickers, start_date, end_date)
         
-        # Process results as they complete
-        successful_tickers = []
-        for future in as_completed(future_to_ticker):
-            ticker, success = future.result()
-            if success:
-                successful_tickers.append(ticker)
-            # Silently continue - individual ticker failures shouldn't block others
+        # Pre-load ticker info in parallel (company names, etc.)
+        # This is separate from history download and can run in parallel
+        max_workers = min(10, len(tickers))  # Increased from 5 to 10 for better performance
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_ticker = {
+                executor.submit(get_ticker_info_cached, ticker, 'longName'): ticker 
+                for ticker in tickers
+            }
+            # Wait for all to complete (we don't need the results, just populate cache)
+            for future in as_completed(future_to_ticker):
+                try:
+                    future.result()  # Just wait for completion to populate cache
+                except Exception:
+                    pass  # Silently continue on errors - individual failures shouldn't block others
+    except Exception as e:
+        # Log error but don't fail completely - some tickers might still work
+        print(f"Warning: Error in preload: {str(e)}")
     
     # KPIs will be calculated when user visits the KPIs tab
     # This makes preload much faster - we only load the raw data here
@@ -3836,9 +3856,9 @@ def main():
                             
                             // Apply styles based on risk level
                             if (riskLevel === 'low') {
-                                header.style.backgroundColor = '#ffc107';
-                                header.style.border = '1px solid #e0a800';
-                                header.style.color = '#856404';
+                                header.style.backgroundColor = '#11998e';
+                                header.style.border = '1px solid #0d7a6b';
+                                header.style.color = '#ffffff';
                                 header.style.borderRadius = '8px';
                                 header.style.padding = '0.5rem 1rem';
                                 header.style.fontWeight = '600';
@@ -3846,9 +3866,9 @@ def main():
                                 console.log('[DEBUG] Applied LOW risk styles to expander', index);
                                 // #endregion
                             } else if (riskLevel === 'moderate') {
-                                header.style.backgroundColor = '#11998e';
-                                header.style.border = '1px solid #0d7a6b';
-                                header.style.color = '#ffffff';
+                                header.style.backgroundColor = '#ffc107';
+                                header.style.border = '1px solid #e0a800';
+                                header.style.color = '#856404';
                                 header.style.borderRadius = '8px';
                                 header.style.padding = '0.5rem 1rem';
                                 header.style.fontWeight = '600';
@@ -4028,6 +4048,95 @@ def main():
                         setupTickerButtons();
                     });
                     buttonObserver.observe(document.body, { childList: true, subtree: true });
+                    
+                    // NEW: Style Risk Assessment buttons based on their position relative to risk badges
+                    function styleRiskAssessmentButtons() {
+                        // #region agent log
+                        console.log('[DEBUG] styleRiskAssessmentButtons called');
+                        // #endregion
+                        
+                        // Find all risk badge sections
+                        const lowRiskBadge = document.querySelector('.risk-badge.risk-low');
+                        const moderateRiskBadge = document.querySelector('.risk-badge.risk-moderate');
+                        const highRiskBadge = document.querySelector('.risk-badge.risk-high');
+                        
+                        // #region agent log
+                        console.log('[DEBUG] Risk badges found:', {
+                            low: !!lowRiskBadge,
+                            moderate: !!moderateRiskBadge,
+                            high: !!highRiskBadge
+                        });
+                        // #endregion
+                        
+                        // Find all buttons in the Risk Assessment section
+                        const allButtons = document.querySelectorAll('button[data-testid="baseButton-secondary"]');
+                        
+                        // #region agent log
+                        console.log('[DEBUG] Total buttons found:', allButtons.length);
+                        // #endregion
+                        
+                        // Style buttons based on their position relative to risk badges
+                        allButtons.forEach((btn, idx) => {
+                            let riskLevel = null;
+                            
+                            // Check if button is in Low Risk section
+                            if (lowRiskBadge) {
+                                const lowRiskSection = lowRiskBadge.closest('[data-testid="column"]') || lowRiskBadge.parentElement;
+                                if (lowRiskSection && lowRiskSection.contains(btn)) {
+                                    riskLevel = 'low';
+                                }
+                            }
+                            
+                            // Check if button is in Moderate Risk section
+                            if (!riskLevel && moderateRiskBadge) {
+                                const moderateRiskSection = moderateRiskBadge.closest('[data-testid="column"]') || moderateRiskBadge.parentElement;
+                                if (moderateRiskSection && moderateRiskSection.contains(btn)) {
+                                    riskLevel = 'moderate';
+                                }
+                            }
+                            
+                            // Check if button is in High Risk section
+                            if (!riskLevel && highRiskBadge) {
+                                const highRiskSection = highRiskBadge.closest('[data-testid="column"]') || highRiskBadge.parentElement;
+                                if (highRiskSection && highRiskSection.contains(btn)) {
+                                    riskLevel = 'high';
+                                }
+                            }
+                            
+                            // Apply styles based on risk level
+                            if (riskLevel === 'low') {
+                                btn.style.backgroundColor = '#11998e';
+                                btn.style.color = '#ffffff';
+                                btn.style.fontSize = '1.2rem';
+                                btn.style.fontWeight = '500';
+                                btn.style.border = 'none';
+                            } else if (riskLevel === 'moderate') {
+                                btn.style.backgroundColor = '#ffc107';
+                                btn.style.color = '#856404';
+                                btn.style.fontSize = '1.2rem';
+                                btn.style.fontWeight = '500';
+                                btn.style.border = 'none';
+                            } else if (riskLevel === 'high') {
+                                btn.style.backgroundColor = '#ee0979';
+                                btn.style.color = '#ffffff';
+                                btn.style.fontSize = '1.2rem';
+                                btn.style.fontWeight = '500';
+                                btn.style.border = 'none';
+                            }
+                        });
+                    }
+                    
+                    // Run styleRiskAssessmentButtons after DOM is ready
+                    setTimeout(styleRiskAssessmentButtons, 200);
+                    setTimeout(styleRiskAssessmentButtons, 500);
+                    setTimeout(styleRiskAssessmentButtons, 1000);
+                    setTimeout(styleRiskAssessmentButtons, 2000);
+                    
+                    // Also run when new content is added
+                    const riskButtonObserver = new MutationObserver(function(mutations) {
+                        styleRiskAssessmentButtons();
+                    });
+                    riskButtonObserver.observe(document.body, { childList: true, subtree: true });
                 })();
                 </script>
                 """, unsafe_allow_html=True)
@@ -4049,57 +4158,21 @@ def main():
                         for idx, ticker in enumerate(low_risk_tickers):
                             with ticker_cols[idx]:
                                 if ticker in risk_details:
-                                    # #region agent log
-                                    _log_write({"id": "log_rendering_low_risk_ticker", "timestamp": int(time.time() * 1000), "location": "app/main.py:2560", "message": "Rendering low risk ticker", "data": {"ticker": ticker, "hasRiskDetails": ticker in risk_details, "hypothesisId": "A"}, "sessionId": "debug-session", "runId": "run1"})
-                                    # #endregion
                                     # Use Streamlit button with session state to trigger modal
                                     button_key = f"risk_btn_low_{ticker}"
-                                    # Style the button with custom CSS
-                                    st.markdown(f"""
-                                    <style>
-                                    div[data-testid="stButton"] > button[kind="secondary"][data-testid="baseButton-secondary"]:has-text("{ticker}") {{
-                                        background-color: #ffc107 !important;
-                                        color: #856404 !important;
-                                        font-weight: 500 !important;
-                                        border: none !important;
-                                    }}
-                                    button[data-testid="baseButton-secondary"][aria-label="{ticker}"] {{
-                                        background-color: #ffc107 !important;
-                                        color: #856404 !important;
-                                        font-weight: 500 !important;
-                                        border: none !important;
-                                    }}
-                                    </style>
-                                    """, unsafe_allow_html=True)
                                     
                                     if st.button(ticker, key=button_key, use_container_width=True, type="secondary"):
                                         st.session_state[f"show_modal_{ticker}"] = True
                                         st.rerun()
                                     
-                                    # Style button with JavaScript after render
-                                    st.markdown(f"""
-                                    <script>
-                                    setTimeout(function() {{
-                                        const buttons = document.querySelectorAll('button[data-testid="baseButton-secondary"]');
-                                        buttons.forEach(btn => {{
-                                            if (btn.textContent.trim() === '{ticker}' && btn.getAttribute('aria-label') === '{button_key}') {{
-                                                btn.style.backgroundColor = '#ffc107';
-                                                btn.style.color = '#856404';
-                                                btn.style.fontSize = '1.2rem';
-                                                btn.style.fontWeight = '500';
-                                            }}
-                                        }});
-                                    }}, 200);
-                                    </script>
-                                    """, unsafe_allow_html=True)
                                     
                                     # Show modal details if button was clicked
                                     if st.session_state.get(f"show_modal_{ticker}", False):
                                         st.markdown(f"""
-                                        <div style='background: linear-gradient(135deg, rgba(255, 193, 7, 0.1) 0%, rgba(255, 152, 0, 0.1) 100%); 
+                                        <div style='background: linear-gradient(135deg, rgba(17, 153, 142, 0.1) 0%, rgba(56, 239, 125, 0.1) 100%); 
                                                     padding: 1.5rem; border-radius: 12px; margin: 0.5rem 0; 
-                                                    border-left: 4px solid #ffc107;'>
-                                            <h3 style='color: #856404; margin-top: 0;'>{ticker} - Risk Assessment</h3>
+                                                    border-left: 4px solid #11998e;'>
+                                            <h3 style='color: #11998e; margin-top: 0;'>{ticker} - Risk Assessment</h3>
                                             <p style='font-size: 1rem; line-height: 1.6; color: #1a1a2e;'>
                                                 <strong>{ticker}:</strong> {html.escape(risk_details[ticker])}
                                             </p>
@@ -4155,39 +4228,19 @@ def main():
                                 col_index = offset + idx
                                 with ticker_cols[col_index]:
                                     if ticker in risk_details:
-                                        # #region agent log
-                                        _log_write({"id": "log_rendering_moderate_risk_ticker", "timestamp": int(time.time() * 1000), "location": "app/main.py:2599", "message": "Rendering moderate risk ticker", "data": {"ticker": ticker, "hasRiskDetails": ticker in risk_details, "hypothesisId": "A"}, "sessionId": "debug-session", "runId": "run1"})
-                                        # #endregion
                                         # Use Streamlit button with session state to trigger modal
                                         button_key = f"risk_btn_moderate_{ticker}"
                                         if st.button(ticker, key=button_key, use_container_width=True, type="secondary"):
                                             st.session_state[f"show_modal_{ticker}"] = True
                                             st.rerun()
                                         
-                                        # Style button with JavaScript after render
-                                        st.markdown(f"""
-                                        <script>
-                                        setTimeout(function() {{
-                                            const buttons = document.querySelectorAll('button[data-testid="baseButton-secondary"]');
-                                            buttons.forEach(btn => {{
-                                                if (btn.textContent.trim() === '{ticker}' && btn.getAttribute('aria-label') === '{button_key}') {{
-                                                    btn.style.backgroundColor = '#11998e';
-                                                    btn.style.color = '#ffffff';
-                                                    btn.style.fontSize = '1.2rem';
-                                                    btn.style.fontWeight = '500';
-                                                }}
-                                            }});
-                                        }}, 200);
-                                        </script>
-                                        """, unsafe_allow_html=True)
-                                        
                                         # Show modal details if button was clicked
                                         if st.session_state.get(f"show_modal_{ticker}", False):
                                             st.markdown(f"""
-                                            <div style='background: linear-gradient(135deg, rgba(17, 153, 142, 0.1) 0%, rgba(56, 239, 125, 0.1) 100%); 
+                                            <div style='background: linear-gradient(135deg, rgba(255, 193, 7, 0.1) 0%, rgba(255, 152, 0, 0.1) 100%); 
                                                         padding: 1.5rem; border-radius: 12px; margin: 0.5rem 0; 
-                                                        border-left: 4px solid #11998e;'>
-                                                <h3 style='color: #11998e; margin-top: 0;'>{ticker} - Risk Assessment</h3>
+                                                        border-left: 4px solid #ffc107;'>
+                                                <h3 style='color: #856404; margin-top: 0;'>{ticker} - Risk Assessment</h3>
                                                 <p style='font-size: 1rem; line-height: 1.6; color: #1a1a2e;'>
                                                     <strong>{ticker}:</strong> {html.escape(risk_details[ticker])}
                                                 </p>
@@ -4198,7 +4251,7 @@ def main():
                                                 st.session_state[f"show_modal_{ticker}"] = False
                                                 st.rerun()
                                     else:
-                                        st.markdown(f'<div style="text-align: center; font-size: 1.2rem; font-weight: 500; color: #856404; background: #ffc107; padding: 0.5rem 1rem; border-radius: 8px; font-family: \'Inter\', sans-serif;">{ticker}</div>', unsafe_allow_html=True)
+                                        st.markdown(f'<div style="text-align: center; font-size: 1.2rem; font-weight: 500; color: #ffffff; background: #ffc107; padding: 0.5rem 1rem; border-radius: 8px; font-family: \'Inter\', sans-serif;">{ticker}</div>', unsafe_allow_html=True)
                     else:
                         st.markdown('<span style="font-size: 1.2rem; font-weight: 500; color: #1a1a2e; font-family: \'Inter\', sans-serif;">None</span>', unsafe_allow_html=True)
                 
@@ -4220,31 +4273,11 @@ def main():
                         for idx, ticker in enumerate(high_risk_tickers):
                             with ticker_cols[idx]:
                                 if ticker in risk_details:
-                                    # #region agent log
-                                    _log_write({"id": "log_rendering_high_risk_ticker", "timestamp": int(time.time() * 1000), "location": "app/main.py:2638", "message": "Rendering high risk ticker", "data": {"ticker": ticker, "hasRiskDetails": ticker in risk_details, "hypothesisId": "A"}, "sessionId": "debug-session", "runId": "run1"})
-                                    # #endregion
                                     # Use Streamlit button with session state to trigger modal
                                     button_key = f"risk_btn_high_{ticker}"
                                     if st.button(ticker, key=button_key, use_container_width=True, type="secondary"):
                                         st.session_state[f"show_modal_{ticker}"] = True
                                         st.rerun()
-                                    
-                                    # Style button with JavaScript after render
-                                    st.markdown(f"""
-                                    <script>
-                                    setTimeout(function() {{
-                                        const buttons = document.querySelectorAll('button[data-testid="baseButton-secondary"]');
-                                        buttons.forEach(btn => {{
-                                            if (btn.textContent.trim() === '{ticker}' && btn.getAttribute('aria-label') === '{button_key}') {{
-                                                btn.style.backgroundColor = '#ee0979';
-                                                btn.style.color = '#ffffff';
-                                                btn.style.fontSize = '1.2rem';
-                                                btn.style.fontWeight = '500';
-                                            }}
-                                        }});
-                                    }}, 200);
-                                    </script>
-                                    """, unsafe_allow_html=True)
                                     
                                     # Show modal details if button was clicked
                                     if st.session_state.get(f"show_modal_{ticker}", False):

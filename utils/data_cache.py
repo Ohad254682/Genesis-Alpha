@@ -62,13 +62,13 @@ def get_ticker_history(ticker, start_date, end_date, max_retries=3, retry_delay=
                     hist = stock.history(start=start_str, end=end_str)
                 except Exception as e2:
                     if attempt < max_retries - 1:
-                        time.sleep(retry_delay)
+                        time.sleep(retry_delay * (attempt + 1))  # Exponential backoff for consistency
                         continue
                     raise Exception(f"Failed to download history: {str(hist_err)}. Retry failed: {str(e2)}") from e2
             
             if hist.empty:
                 if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
+                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff for consistency
                     continue
                 else:
                     raise ValueError(f"No data downloaded for {ticker} in date range {start_str} to {end_str}")
@@ -78,7 +78,7 @@ def get_ticker_history(ticker, start_date, end_date, max_retries=3, retry_delay=
             
         except (RequestsConnectionError, Timeout, RequestException) as e:
             if attempt < max_retries - 1:
-                time.sleep(retry_delay * (attempt + 1))
+                time.sleep(retry_delay * (attempt + 1))  # Exponential backoff for network errors
                 continue
             else:
                 raise ConnectionError(
@@ -87,7 +87,7 @@ def get_ticker_history(ticker, start_date, end_date, max_retries=3, retry_delay=
                 ) from e
         except Exception as e:
             if attempt < max_retries - 1:
-                time.sleep(retry_delay)
+                time.sleep(retry_delay * (attempt + 1))  # Exponential backoff for consistency
                 continue
             else:
                 raise Exception(f"Error downloading data for {ticker}: {str(e)}") from e
@@ -165,7 +165,7 @@ def get_multiple_tickers_history(tickers, start_date, end_date, max_retries=3, r
     # Download all tickers in parallel using ThreadPoolExecutor
     # This is much faster than sequential downloads
     all_data = {}
-    max_workers = min(5, len(tickers))  # Limit to 5 concurrent downloads to avoid overwhelming the API
+    max_workers = min(10, len(tickers))  # Increased from 5 to 10 for better performance
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all download tasks

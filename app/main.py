@@ -4049,80 +4049,42 @@ def main():
                     });
                     buttonObserver.observe(document.body, { childList: true, subtree: true });
                     
-                    // NEW: Style Risk Assessment buttons based on their position relative to risk badges
+                    // NEW: Style Risk Assessment buttons based on data-risk-buttons wrapper divs
+                    // This is more reliable than DOM traversal
                     function styleRiskAssessmentButtons() {
-                        // #region agent log
-                        console.log('[DEBUG] styleRiskAssessmentButtons called');
-                        // #endregion
+                        // Find all buttons and their risk level using data-risk-buttons wrapper
+                        const riskLevels = ['low', 'moderate', 'high'];
                         
-                        // Find all risk badge sections
-                        const lowRiskBadge = document.querySelector('.risk-badge.risk-low');
-                        const moderateRiskBadge = document.querySelector('.risk-badge.risk-moderate');
-                        const highRiskBadge = document.querySelector('.risk-badge.risk-high');
-                        
-                        // #region agent log
-                        console.log('[DEBUG] Risk badges found:', {
-                            low: !!lowRiskBadge,
-                            moderate: !!moderateRiskBadge,
-                            high: !!highRiskBadge
-                        });
-                        // #endregion
-                        
-                        // Find all buttons in the Risk Assessment section
-                        const allButtons = document.querySelectorAll('button[data-testid="baseButton-secondary"]');
-                        
-                        // #region agent log
-                        console.log('[DEBUG] Total buttons found:', allButtons.length);
-                        // #endregion
-                        
-                        // Style buttons based on their position relative to risk badges
-                        allButtons.forEach((btn, idx) => {
-                            let riskLevel = null;
+                        riskLevels.forEach(riskLevel => {
+                            // Find the wrapper div with data-risk-buttons attribute
+                            const wrapper = document.querySelector(`[data-risk-buttons="${riskLevel}"]`);
+                            if (!wrapper) return;
                             
-                            // Check if button is in Low Risk section
-                            if (lowRiskBadge) {
-                                const lowRiskSection = lowRiskBadge.closest('[data-testid="column"]') || lowRiskBadge.parentElement;
-                                if (lowRiskSection && lowRiskSection.contains(btn)) {
-                                    riskLevel = 'low';
+                            // Find all buttons within this wrapper
+                            const buttons = wrapper.querySelectorAll('button[data-testid="baseButton-secondary"]');
+                            
+                            buttons.forEach(btn => {
+                                // Apply styles based on risk level
+                                if (riskLevel === 'low') {
+                                    btn.style.setProperty('background-color', '#11998e', 'important');
+                                    btn.style.setProperty('color', '#ffffff', 'important');
+                                    btn.style.setProperty('font-size', '1.2rem', 'important');
+                                    btn.style.setProperty('font-weight', '500', 'important');
+                                    btn.style.setProperty('border', 'none', 'important');
+                                } else if (riskLevel === 'moderate') {
+                                    btn.style.setProperty('background-color', '#ffc107', 'important');
+                                    btn.style.setProperty('color', '#856404', 'important');
+                                    btn.style.setProperty('font-size', '1.2rem', 'important');
+                                    btn.style.setProperty('font-weight', '500', 'important');
+                                    btn.style.setProperty('border', 'none', 'important');
+                                } else if (riskLevel === 'high') {
+                                    btn.style.setProperty('background-color', '#ee0979', 'important');
+                                    btn.style.setProperty('color', '#ffffff', 'important');
+                                    btn.style.setProperty('font-size', '1.2rem', 'important');
+                                    btn.style.setProperty('font-weight', '500', 'important');
+                                    btn.style.setProperty('border', 'none', 'important');
                                 }
-                            }
-                            
-                            // Check if button is in Moderate Risk section
-                            if (!riskLevel && moderateRiskBadge) {
-                                const moderateRiskSection = moderateRiskBadge.closest('[data-testid="column"]') || moderateRiskBadge.parentElement;
-                                if (moderateRiskSection && moderateRiskSection.contains(btn)) {
-                                    riskLevel = 'moderate';
-                                }
-                            }
-                            
-                            // Check if button is in High Risk section
-                            if (!riskLevel && highRiskBadge) {
-                                const highRiskSection = highRiskBadge.closest('[data-testid="column"]') || highRiskBadge.parentElement;
-                                if (highRiskSection && highRiskSection.contains(btn)) {
-                                    riskLevel = 'high';
-                                }
-                            }
-                            
-                            // Apply styles based on risk level
-                            if (riskLevel === 'low') {
-                                btn.style.backgroundColor = '#11998e';
-                                btn.style.color = '#ffffff';
-                                btn.style.fontSize = '1.2rem';
-                                btn.style.fontWeight = '500';
-                                btn.style.border = 'none';
-                            } else if (riskLevel === 'moderate') {
-                                btn.style.backgroundColor = '#ffc107';
-                                btn.style.color = '#856404';
-                                btn.style.fontSize = '1.2rem';
-                                btn.style.fontWeight = '500';
-                                btn.style.border = 'none';
-                            } else if (riskLevel === 'high') {
-                                btn.style.backgroundColor = '#ee0979';
-                                btn.style.color = '#ffffff';
-                                btn.style.fontSize = '1.2rem';
-                                btn.style.fontWeight = '500';
-                                btn.style.border = 'none';
-                            }
+                            });
                         });
                     }
                     
@@ -4146,12 +4108,13 @@ def main():
                 col1, col2 = st.columns([1, 4])
                 with col1:
                     st.markdown("""
-                    <div style='display: flex; align-items: center;'>
+                    <div style='display: flex; align-items: center;' data-risk-section="low">
                         <span class="risk-badge risk-low" style='font-size: 0.875rem; padding: 0.5rem 1rem;'>Low Risk</span>
                     </div>
                     """, unsafe_allow_html=True)
                 
                 with col2:
+                    st.markdown('<div data-risk-buttons="low">', unsafe_allow_html=True)
                     if low_risk_tickers:
                         # Display tickers inline, each as a clickable expander
                         ticker_cols = st.columns(len(low_risk_tickers))
@@ -4186,6 +4149,7 @@ def main():
                                     st.markdown(f'<div style="text-align: center; font-size: 1.2rem; font-weight: 500; color: #ffffff; background: #11998e; padding: 0.5rem 1rem; border-radius: 8px; font-family: \'Inter\', sans-serif;">{ticker}</div>', unsafe_allow_html=True)
                     else:
                         st.markdown('<span style="font-size: 1.2rem; font-weight: 500; color: #1a1a2e; font-family: \'Inter\', sans-serif;">None</span>', unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
@@ -4193,12 +4157,13 @@ def main():
                 col1, col2 = st.columns([1, 4])
                 with col1:
                     st.markdown("""
-                    <div style='display: flex; align-items: center;'>
+                    <div style='display: flex; align-items: center;' data-risk-section="moderate">
                         <span class="risk-badge risk-moderate" style='font-size: 0.875rem; padding: 0.5rem 1rem;'>Moderate Risk</span>
                     </div>
                     """, unsafe_allow_html=True)
                 
                 with col2:
+                    st.markdown('<div data-risk-buttons="moderate">', unsafe_allow_html=True)
                     if moderate_risk_tickers:
                         # Display tickers in a centered grid with equal-size items and gaps between them
                         max_cols = min(len(moderate_risk_tickers), 8)
@@ -4261,12 +4226,13 @@ def main():
                 col1, col2 = st.columns([1, 4])
                 with col1:
                     st.markdown("""
-                    <div style='display: flex; align-items: center;'>
+                    <div style='display: flex; align-items: center;' data-risk-section="high">
                         <span class="risk-badge risk-high" style='font-size: 0.875rem; padding: 0.5rem 1rem;'>High Risk</span>
                     </div>
                     """, unsafe_allow_html=True)
                 
                 with col2:
+                    st.markdown('<div data-risk-buttons="high">', unsafe_allow_html=True)
                     if high_risk_tickers:
                         # Display tickers inline, each as a clickable expander
                         ticker_cols = st.columns(len(high_risk_tickers))
@@ -4299,6 +4265,7 @@ def main():
                                     st.markdown(f'<div style="text-align: center; font-size: 1.2rem; font-weight: 500; color: #ffffff; background: #ee0979; padding: 0.5rem 1rem; border-radius: 8px; font-family: \'Inter\', sans-serif;">{ticker}</div>', unsafe_allow_html=True)
                     else:
                         st.markdown('<span style="font-size: 1.2rem; font-weight: 500; color: #1a1a2e; font-family: \'Inter\', sans-serif;">None</span>', unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
                 
                 # Add script to ensure buttons are clickable after all content is rendered
                 st.markdown("""
